@@ -1,0 +1,11 @@
+{$RUMMI_DOMAIN} {
+    request_body {
+        max_size 64KB
+    }
+    reverse_proxy server:8080
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+}

@@ -1,0 +1,30 @@
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8080:8080'
+    volumes:
+      - game-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      RUMMI_DOMAIN: ${RUMMI_DOMAIN:?Set RUMMI_DOMAIN in .env to your public domain}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [server]
+volumes:
+  game-data:
+  caddy-data:
+  caddy-config:

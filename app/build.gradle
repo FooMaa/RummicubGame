@@ -1,0 +1,33 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.rummiclub.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.rummiclub.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        buildConfigField 'String', 'DEFAULT_SERVER_URL', '"' + (System.getenv('RUMMI_SERVER_URL') ?: '').replace('"', '').replace('\\', '') + '"'
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        if (System.getenv('ANDROID_KEYSTORE_PATH')) {
+            production {
+                storeFile file(System.getenv('ANDROID_KEYSTORE_PATH'))
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv('ANDROID_KEYSTORE_PATH')) signingConfig signingConfigs.production
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true; disable 'ObsoleteSdkInt', 'SetTextI18n' }
+}
+dependencies { implementation project(':core') }
