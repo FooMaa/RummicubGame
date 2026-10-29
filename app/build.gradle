@@ -6,9 +6,9 @@ android {
         applicationId 'com.rummiclub.app'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '1.0.1'
-        buildConfigField 'String', 'DEFAULT_SERVER_URL', '"' + (System.getenv('RUMMI_SERVER_URL') ?: '').replace('"', '').replace('\\', '') + '"'
+        versionCode 3
+        versionName '1.0.2'
+        buildConfigField 'String', 'DEFAULT_SERVER_URL', '"' + (System.getenv('RUMMI_SERVER_URL') ?: 'https://rummiclub.onrender.com').replace('"', '').replace('\\', '') + '"'
     }
     buildFeatures { buildConfig true }
     signingConfigs {
