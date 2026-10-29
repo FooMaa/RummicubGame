@@ -56,6 +56,8 @@ jobs:
           ./gradlew --no-daemon :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk artifacts/RummiClub-release.apk
           sha256sum artifacts/RummiClub-release.apk >> artifacts/SHA256SUMS
+      - name: Verify APK integrity, signatures and alignment
+        run: ./scripts/verify-apk.sh artifacts/*.apk
       - uses: actions/upload-artifact@v4
         with:
           name: RummiClub-Android-APK
