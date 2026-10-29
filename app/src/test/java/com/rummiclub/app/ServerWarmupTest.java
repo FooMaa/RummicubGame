@@ -35,4 +35,12 @@ public class ServerWarmupTest {
         catch (InterruptedException expected) { }
         finally { Thread.interrupted(); }
     }
+    @Test public void negativeMonotonicClockStillProbesAndKeepsLastCause() throws Exception {
+        Clock clock = new Clock(); clock.now = -500_000;
+        IOException cause = new java.net.UnknownHostException();
+        ServerWarmup warmup = new ServerWarmup(clock, (url, timeout) -> { throw cause; });
+        try { warmup.await("https://game.onrender.com"); fail(); }
+        catch (ServerWarmup.NotReady error) { assertSame(cause, error.getCause()); }
+        assertEquals(-380_000, clock.now);
+    }
 }

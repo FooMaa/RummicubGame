@@ -23,6 +23,8 @@ public final class MainActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private Future<?> requestTask, pollTask, editTask;
+    private AlertDialog connectionDialog;
+    private long requestStarted;
     private SharedPreferences prefs;
     private SessionVault vault;
     private String token = "", endpoint = "", screen = "home", playerName = "Игрок";
@@ -39,6 +41,10 @@ public final class MainActivity extends Activity {
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             if (!active) return;
+            if (connectionDialog != null && connectionDialog.isShowing() && requestBusy) {
+                long seconds = (SystemClock.elapsedRealtime() - requestStarted) / 1000;
+                connectionDialog.setMessage("Ожидаем ответ сервера · " + seconds + " с\n\nПосле простоя бесплатный сервер может запускаться до двух минут.\n\n" + endpoint);
+            }
             if (screen.equals("game") || screen.equals("lobby")) {
                 if (online && view != null && System.currentTimeMillis() - lastPoll >= 3000) poll();
                 if (!online && screen.equals("game")) botStep();
@@ -75,7 +81,7 @@ public final class MainActivity extends Activity {
         if (screen.equals("game") && view != null) gameScreen();
     }
     @Override protected void onPause() { super.onPause(); active = false; handler.removeCallbacks(ticker); saveLocal(); }
-    @Override protected void onDestroy() { super.onDestroy(); epoch++; handler.removeCallbacksAndMessages(null); worker.shutdownNow(); network.shutdownNow(); }
+    @Override protected void onDestroy() { super.onDestroy(); dismissConnectionDialog(); epoch++; handler.removeCallbacksAndMessages(null); worker.shutdownNow(); network.shutdownNow(); }
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         if (view != null) { out.putString("view", JSON.toJson(view)); out.putString("draft", JSON.toJson(draft)); out.putBoolean("dirty", dirty); out.putBoolean("online", online); out.putString("screen", screen); }
@@ -126,6 +132,7 @@ public final class MainActivity extends Activity {
     }
     private void navigate(String destination) {
         if (!screen.equals(destination)) {
+            dismissConnectionDialog();
             epoch++; screen = destination;
             if (requestTask != null) requestTask.cancel(true);
             if (pollTask != null) pollTask.cancel(true);
@@ -372,10 +379,13 @@ public final class MainActivity extends Activity {
     private interface Result{void accept(JsonObject object);}
     private void request(String route,JsonObject body,Result callback){
         if(requestBusy){toast("Дождитесь ответа сервера");return;}requestBusy=true;int requestEpoch=epoch;String url=endpoint,session=token;
+        requestStarted=SystemClock.elapsedRealtime();
+        connectionDialog=new AlertDialog.Builder(this).setTitle("Подключение к игре")
+            .setMessage("Ожидаем ответ сервера…\n\n"+url).setNegativeButton("Отмена",(d,w)->{epoch++;if(requestTask!=null)requestTask.cancel(true);requestBusy=false;dismissConnectionDialog();home();}).setCancelable(false).show();
         if(connectionLabel!=null)connectionLabel.setText(ServerWarmup.isRender(url)?"Подключаемся… Первое подключение может занять около минуты":"Подключаемся…");
         requestTask=network.submit(()->{
-            try{JsonObject result=Api.request(url,session,route,body);handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;callback.accept(result);});}
-            catch(Exception e){handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;networkError(e,true);});}
+            try{JsonObject result=Api.request(url,session,route,body);handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;dismissConnectionDialog();callback.accept(result);});}
+            catch(Exception e){handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;dismissConnectionDialog();networkError(e,true);});}
         });
     }
     private void poll(){
@@ -386,11 +396,20 @@ public final class MainActivity extends Activity {
         });
     }
     private void networkError(Exception e,boolean show){
-        String message=e instanceof Api.Failure?e.getMessage():"Нет связи с сервером. Проверьте адрес и интернет";
-        if(connectionLabel!=null)connectionLabel.setText("○ "+message+" · повторяем подключение");
+        String message=e instanceof Api.Failure?e.getMessage():ConnectionErrors.describe(e);
+        if(connectionLabel!=null)connectionLabel.setText("○ "+message);
         if(e instanceof Api.Failure&&((Api.Failure)e).status==401){token="";vault.clear();auth(false);show=true;}
-        if(show)toast(message);
+        if(show) {
+            AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("Не удалось подключиться")
+                .setMessage(message+"\n\nСервер: "+endpoint).setPositiveButton("Закрыть",null);
+            if(!(e instanceof Api.Failure))dialog.setNeutralButton("Проверить в браузере",(d,w)->{
+                try{startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(endpoint.replaceAll("/+$","")+"/health")));}
+                catch(ActivityNotFoundException missing){toast("На телефоне не найден браузер");}
+            });
+            dialog.show();
+        }
     }
+    private void dismissConnectionDialog(){if(connectionDialog!=null){connectionDialog.dismiss();connectionDialog=null;}}
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     private void rules(){
         String text="Цель — первым выложить все фишки. У каждого в начале 14; всего 106, включая 2 джокера.\n\n"+

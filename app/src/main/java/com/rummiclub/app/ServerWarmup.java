@@ -7,6 +7,9 @@ import java.util.*;
 
 /** Wake sleeping free Render instances before sending a mutation. Never replays a mutation. */
 final class ServerWarmup {
+    static final class NotReady extends IOException {
+        NotReady(IOException cause) { super("Сервер не подтвердил готовность", cause); }
+    }
     interface Time { long now(); void sleep(long millis) throws InterruptedException; }
     interface Probe { boolean ready(String base, int timeout) throws IOException; }
     private final Time time;
@@ -26,24 +29,27 @@ final class ServerWarmup {
     void await(String base) throws IOException, InterruptedException {
         if (!isRender(base)) return;
         base = base.replaceAll("/+$", "");
-        synchronized (readyUntil) { if (readyUntil.getOrDefault(base, 0L) > time.now()) return; }
+        synchronized (readyUntil) { Long until = readyUntil.get(base); if (until != null && until > time.now()) return; }
         long deadline = time.now() + 120_000;
+        IOException lastError = null;
         while (time.now() < deadline) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             try {
                 if (probe.ready(base, (int) Math.min(5000, Math.max(1, (deadline - time.now()) / 2)))) {
                     succeeded(base); return;
                 }
-            } catch (IOException ignored) { /* readiness GET is safe to repeat */ }
+                lastError = null;
+            } catch (IOException error) { lastError = error; /* readiness GET is safe to repeat */ }
             long remaining = deadline - time.now();
             if (remaining > 0) time.sleep(Math.min(3000, remaining));
         }
-        throw new IOException("Сервер ещё просыпается. Попробуйте подключиться через минуту");
+        throw new NotReady(lastError);
     }
     void succeeded(String base) { synchronized (readyUntil) { readyUntil.put(base.replaceAll("/+$", ""), time.now() + 600_000); } }
     void failed(String base) { synchronized (readyUntil) { readyUntil.remove(base.replaceAll("/+$", "")); } }
     private static boolean health(String base, int timeout) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(base + "/health").openConnection();
+        c.setUseCaches(false);
         c.setConnectTimeout(timeout); c.setReadTimeout(timeout); c.setInstanceFollowRedirects(false);
         try {
             if (c.getResponseCode() != 200) return false;
