@@ -35,7 +35,7 @@ final class ServerWarmup {
         while (time.now() < deadline) {
             if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
             try {
-                if (probe.ready(base, (int) Math.min(5000, Math.max(1, (deadline - time.now()) / 2)))) {
+                if (probe.ready(base, (int) Math.min(15000, Math.max(1, deadline - time.now())))) {
                     succeeded(base); return;
                 }
                 lastError = null;
@@ -48,18 +48,9 @@ final class ServerWarmup {
     void succeeded(String base) { synchronized (readyUntil) { readyUntil.put(base.replaceAll("/+$", ""), time.now() + 600_000); } }
     void failed(String base) { synchronized (readyUntil) { readyUntil.remove(base.replaceAll("/+$", "")); } }
     private static boolean health(String base, int timeout) throws IOException {
-        HttpURLConnection c = (HttpURLConnection) new URL(base + "/health").openConnection();
-        c.setUseCaches(false);
-        c.setConnectTimeout(timeout); c.setReadTimeout(timeout); c.setInstanceFollowRedirects(false);
-        try {
-            if (c.getResponseCode() != 200) return false;
-            try (InputStream in = c.getInputStream()) {
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                byte[] buffer = new byte[1024]; int n;
-                while ((n = in.read(buffer)) != -1) { bytes.write(buffer, 0, n); if (bytes.size() > 4096) return false; }
-                try { return "ok".equals(JsonParser.parseString(bytes.toString("UTF-8")).getAsJsonObject().get("status").getAsString()); }
-                catch (RuntimeException invalid) { return false; }
-            }
-        } finally { c.disconnect(); }
+        HttpTransport.Reply reply = HttpTransport.get(base + "/health", timeout);
+        if (reply.status() != 200) return false;
+        try { return "ok".equals(JsonParser.parseString(reply.body()).getAsJsonObject().get("status").getAsString()); }
+        catch (RuntimeException invalid) { return false; }
     }
 }

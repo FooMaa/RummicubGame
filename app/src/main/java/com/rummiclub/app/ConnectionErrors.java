@@ -6,10 +6,16 @@ import javax.net.ssl.SSLException;
 /** User-facing transport diagnostics; never includes headers, tokens or request bodies. */
 final class ConnectionErrors {
     static String describe(Throwable error) {
+        String phase = "";
+        for (Throwable cause = error; cause != null; cause = cause.getCause())
+            if (cause instanceof HttpTransport.Failure failure) { phase = failure.phase + ": "; break; }
+        return phase + reason(error);
+    }
+    private static String reason(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (cause instanceof UnknownHostException) return "Телефон не смог найти адрес сервера. Проверьте Private DNS, VPN или попробуйте другую сеть. Код: DNS";
             if (cause instanceof SSLException) return "Не удалось установить защищённое соединение. Проверьте дату и время телефона, VPN и фильтрацию HTTPS. Код: TLS";
-            if (cause instanceof SocketTimeoutException) return "Сервер не ответил вовремя. Попробуйте другую сеть или подключитесь ещё раз. Код: TIMEOUT";
+            if (cause instanceof SocketTimeoutException || (cause instanceof java.io.InterruptedIOException && !Thread.currentThread().isInterrupted())) return "Сервер не ответил вовремя. Попробуйте другую сеть или подключитесь ещё раз. Код: TIMEOUT";
             if (cause instanceof ConnectException || cause instanceof NoRouteToHostException) return "Не удалось соединиться с сервером. Проверьте доступ к нему через Wi-Fi и мобильную сеть. Код: CONNECT";
             if (cause instanceof InterruptedException) return "Подключение отменено";
         }
