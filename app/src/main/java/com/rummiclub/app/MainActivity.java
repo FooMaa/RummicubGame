@@ -21,6 +21,8 @@ public final class MainActivity extends Activity {
     private static final Gson JSON = new Gson();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService network = Executors.newSingleThreadExecutor();
+    private Future<?> requestTask, pollTask, editTask;
     private SharedPreferences prefs;
     private SessionVault vault;
     private String token = "", endpoint = "", screen = "home", playerName = "Игрок";
@@ -38,7 +40,7 @@ public final class MainActivity extends Activity {
         @Override public void run() {
             if (!active) return;
             if (screen.equals("game") || screen.equals("lobby")) {
-                if (online && view != null && System.currentTimeMillis() - lastPoll >= 1500) poll();
+                if (online && view != null && System.currentTimeMillis() - lastPoll >= 3000) poll();
                 if (!online && screen.equals("game")) botStep();
                 updateClock();
             }
@@ -73,7 +75,7 @@ public final class MainActivity extends Activity {
         if (screen.equals("game") && view != null) gameScreen();
     }
     @Override protected void onPause() { super.onPause(); active = false; handler.removeCallbacks(ticker); saveLocal(); }
-    @Override protected void onDestroy() { super.onDestroy(); epoch++; handler.removeCallbacksAndMessages(null); worker.shutdownNow(); }
+    @Override protected void onDestroy() { super.onDestroy(); epoch++; handler.removeCallbacksAndMessages(null); worker.shutdownNow(); network.shutdownNow(); }
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         if (view != null) { out.putString("view", JSON.toJson(view)); out.putString("draft", JSON.toJson(draft)); out.putBoolean("dirty", dirty); out.putBoolean("online", online); out.putString("screen", screen); }
@@ -122,7 +124,15 @@ public final class MainActivity extends Activity {
         TextView tag = new TextView(this); tag.setText(section); tag.setTextColor(LIME); tag.setTextSize(10); tag.setLetterSpacing(.1f); tag.setPadding(dp(12),dp(9),dp(12),dp(9)); tag.setBackground(shape(CARD,20)); nav.addView(tag);
         brand.setContentDescription("Rummi Club — главное меню"); brand.setOnClickListener(v -> onBackPressed()); space(root,24);
     }
-    private void navigate(String destination) { if (!screen.equals(destination)) { epoch++; screen = destination; } }
+    private void navigate(String destination) {
+        if (!screen.equals(destination)) {
+            epoch++; screen = destination;
+            if (requestTask != null) requestTask.cancel(true);
+            if (pollTask != null) pollTask.cancel(true);
+            if (editTask != null) editTask.cancel(true);
+            requestBusy = false; pollBusy = false;
+        }
+    }
     private void home() {
         navigate("home"); base("ИГРА В ЧИСЛА");
         eyebrow(root,"ВАШ СЛЕДУЮЩИЙ ХОРОШИЙ ХОД"); space(root,12);
@@ -329,7 +339,7 @@ public final class MainActivity extends Activity {
     private void markDirty(){boolean was=dirty;dirty=!draft.equals(view.board);if(online&&was!=dirty)editSignal();}
     private void editSignal(){
         if(view==null)return;JsonObject b=roomBody();b.addProperty("editing",dirty);String url=endpoint,session=token;
-        worker.submit(()->{try{Api.request(url,session,"room/edit",b);}catch(Exception ignored){/* authoritative deadline still applies; next state poll reconciles */}});
+        editTask=network.submit(()->{try{Api.request(url,session,"room/edit",b);}catch(Exception ignored){/* authoritative deadline still applies; next state poll reconciles */}});
     }
     private void resetDraft(){if(!canEdit())return;draft=Rules.copyBoard(view.board);selected.clear();markDirty();gameScreen();}
     private void commit(){
@@ -362,17 +372,17 @@ public final class MainActivity extends Activity {
     private interface Result{void accept(JsonObject object);}
     private void request(String route,JsonObject body,Result callback){
         if(requestBusy){toast("Дождитесь ответа сервера");return;}requestBusy=true;int requestEpoch=epoch;String url=endpoint,session=token;
-        if(connectionLabel!=null)connectionLabel.setText("Подключаемся…");
-        worker.submit(()->{
-            try{JsonObject result=Api.request(url,session,route,body);handler.post(()->{requestBusy=false;if(isDestroyed()||requestEpoch!=epoch)return;callback.accept(result);});}
-            catch(Exception e){handler.post(()->{requestBusy=false;if(isDestroyed()||requestEpoch!=epoch)return;networkError(e,true);});}
+        if(connectionLabel!=null)connectionLabel.setText(ServerWarmup.isRender(url)?"Подключаемся… Первое подключение может занять около минуты":"Подключаемся…");
+        requestTask=network.submit(()->{
+            try{JsonObject result=Api.request(url,session,route,body);handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;callback.accept(result);});}
+            catch(Exception e){handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;requestBusy=false;requestTask=null;networkError(e,true);});}
         });
     }
     private void poll(){
         if(pollBusy||requestBusy||view==null)return;pollBusy=true;lastPoll=System.currentTimeMillis();JsonObject b=roomBody();String url=endpoint,session=token;int requestEpoch=epoch;
-        worker.submit(()->{
-            try{JsonObject result=Api.request(url,session,"room/state",b);handler.post(()->{pollBusy=false;if(isDestroyed()||requestEpoch!=epoch||!online)return;accept(JSON.fromJson(result,Room.View.class),false);});}
-            catch(Exception e){handler.post(()->{pollBusy=false;if(isDestroyed()||requestEpoch!=epoch)return;networkError(e,false);});}
+        pollTask=network.submit(()->{
+            try{JsonObject result=Api.request(url,session,"room/state",b);handler.post(()->{if(isDestroyed()||requestEpoch!=epoch||!online)return;pollBusy=false;pollTask=null;accept(JSON.fromJson(result,Room.View.class),false);});}
+            catch(Exception e){handler.post(()->{if(isDestroyed()||requestEpoch!=epoch)return;pollBusy=false;pollTask=null;networkError(e,false);});}
         });
     }
     private void networkError(Exception e,boolean show){

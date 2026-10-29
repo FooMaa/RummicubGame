@@ -15,46 +15,87 @@ public final class Server implements AutoCloseable {
     private static final Gson JSON = new Gson();
     private final HttpServer http;
     private final Store store;
+    private final SnapshotBackend snapshotBackend;
     private final Map<String, Room> rooms;
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final ExecutorService workers = new ThreadPoolExecutor(4, 8, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), new ThreadPoolExecutor.CallerRunsPolicy());
     private final Map<String, long[]> attempts = new HashMap<>();
     private final SecureRandom random = new SecureRandom();
-    public Server(int port, Path database) throws Exception {
+    public Server(int port, Path database) throws Exception { this(port, database, null); }
+    public Server(int port, Path database, SnapshotBackend snapshotBackend) throws Exception {
+        this.snapshotBackend = snapshotBackend;
         store = new Store(database); rooms = store.loadRooms();
-        http = HttpServer.create(new InetSocketAddress(port), 64);
-        http.createContext("/", this::handle); http.setExecutor(workers);
+        http = port < 0 ? null : HttpServer.create(new InetSocketAddress(port), 64);
+        if (http != null) { http.createContext("/", this::handle); http.setExecutor(workers); }
     }
-    public void start() { http.start(); scheduler.scheduleWithFixedDelay(this::tick, 1, 1, TimeUnit.SECONDS); }
+    public void start() { http.start(); if (snapshotBackend == null) scheduler.scheduleWithFixedDelay(this::tick, 1, 1, TimeUnit.SECONDS); }
     public int port() { return http.getAddress().getPort(); }
+    record Reply(int status, Object body) { }
     private void handle(HttpExchange exchange) throws IOException {
+        byte[] bytes = exchange.getRequestBody().readNBytes(65537);
+        String path = exchange.getRequestURI().getPath(), method = exchange.getRequestMethod();
+        String header = exchange.getRequestHeaders().getFirst("Authorization");
+        String ip = exchange.getRemoteAddress().getAddress().getHostAddress();
+        Reply reply = invoke(path, method, bytes, header, ip);
+        respond(exchange, reply.status(), reply.body());
+    }
+    Reply invoke(String path, String method, byte[] bytes, String header, String ip) {
+        Reply reply;
+        if (bytes.length > 65536) return new Reply(413, Map.of("error", "Запрос слишком большой"));
+        try {
+            if (snapshotBackend == null || (path.equals("/health") && method.equals("GET"))) {
+                reply = execute(path, method, bytes, header, ip);
+            } else synchronized (this) {
+                reply = snapshotBackend.transact(before -> {
+                    store.restore(before);
+                    attempts.clear();
+                    if (before != null) {
+                        JsonObject previous = JsonParser.parseString(before).getAsJsonObject();
+                        if (previous.has("rateLimits")) attempts.putAll(JSON.fromJson(previous.get("rateLimits"),
+                            new com.google.gson.reflect.TypeToken<Map<String,long[]>>(){}.getType()));
+                    }
+                    rooms.clear(); rooms.putAll(store.loadRooms());
+                    long now = System.currentTimeMillis();
+                    for (Room r : new ArrayList<>(rooms.values())) if (now - r.updatedAt > 7L * 86400000) {
+                        store.delete(r.code); rooms.remove(r.code);
+                    }
+                    Reply result = execute(path, method, bytes, header, ip);
+                    JsonObject snapshot = JsonParser.parseString(store.snapshot()).getAsJsonObject();
+                    snapshot.add("rateLimits", JSON.toJsonTree(attempts));
+                    return new SnapshotBackend.Update<>(snapshot.toString(), result);
+                });
+            }
+        } catch (Exception e) {
+            System.err.println("State transaction failed: " + e.getClass().getSimpleName());
+            reply = new Reply(503, Map.of("error", "Хранилище временно недоступно или заполнено. Повторите запрос"));
+        }
+        return reply;
+    }
+    private Reply execute(String path, String method, byte[] bytes, String header, String ip) {
         int status = 200; Object result;
         try {
-            String path = exchange.getRequestURI().getPath();
-            if (path.equals("/health") && exchange.getRequestMethod().equals("GET")) result = Map.of("status", "ok");
+            if (path.equals("/health") && method.equals("GET")) result = Map.of("status", "ok");
             else {
-                if (!exchange.getRequestMethod().equals("POST")) { respond(exchange, 405, Map.of("error", "Используйте POST")); return; }
-                byte[] bytes = exchange.getRequestBody().readNBytes(65537);
-                if (bytes.length > 65536) { respond(exchange, 413, Map.of("error", "Запрос слишком большой")); return; }
+                if (!method.equals("POST")) { return new Reply(405, Map.of("error", "Используйте POST")); }
+                if (bytes.length > 65536) { return new Reply(413, Map.of("error", "Запрос слишком большой")); }
                 JsonObject body = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
                 if (path.equals("/api/auth/register") || path.equals("/api/auth/login")) {
-                    if (!allow(exchange.getRemoteAddress().getAddress().getHostAddress())) { respond(exchange, 429, Map.of("error", "Слишком много попыток. Подождите 15 минут")); return; }
+                    if (!allow(ip)) { return new Reply(429, Map.of("error", "Слишком много попыток. Подождите 15 минут")); }
                     String name = string(body, "name"), password = string(body, "password");
                     result = path.endsWith("register") ? store.register(name, password) : store.login(name, password);
                 } else {
-                    String header = exchange.getRequestHeaders().getFirst("Authorization");
                     String token = header != null && header.startsWith("Bearer ") ? header.substring(7) : null;
                     Store.Account account = store.authenticate(token);
                     if (path.equals("/api/auth/logout")) { store.logout(token); result = Map.of("ok", true); }
                     else if (path.startsWith("/api/room/")) result = roomAction(path.substring(10), body, account);
-                    else { respond(exchange, 404, Map.of("error", "Маршрут не найден")); return; }
+                    else { return new Reply(404, Map.of("error", "Маршрут не найден")); }
                 }
             }
         } catch (SecurityException e) { status = 401; result = Map.of("error", e.getMessage()); }
         catch (JsonParseException e) { status = 400; result = Map.of("error", "Некорректный JSON"); }
         catch (IllegalArgumentException | IllegalStateException | NullPointerException e) { status = 400; result = Map.of("error", e.getMessage() == null ? "Некорректный запрос" : e.getMessage()); }
         catch (Exception e) { status = 500; result = Map.of("error", "Ошибка сервера. Попробуйте ещё раз"); System.err.println("Request failed: " + e.getClass().getSimpleName()); }
-        respond(exchange, status, result);
+        return new Reply(status, result);
     }
     private static String string(JsonObject object, String key) {
         if (!object.has(key) || !object.get(key).isJsonPrimitive() || !object.get(key).getAsJsonPrimitive().isString()) throw new IllegalArgumentException("Не задано поле: " + key);
@@ -75,7 +116,7 @@ public final class Server implements AutoCloseable {
         }
         if (action.equals("create")) {
             ensureNoRoom(user.id, "");
-            if (rooms.size() >= 1000) throw new IllegalArgumentException("Сервер заполнен");
+            if (rooms.size() >= (snapshotBackend == null ? 1000 : 20)) throw new IllegalArgumentException("Сервер заполнен");
             Room r = new Room();
             do { r.code = code(); } while (rooms.containsKey(r.code));
             r.host = user.id; r.members.add(new Game.Player(user.id, user.name, false));
@@ -87,6 +128,11 @@ public final class Server implements AutoCloseable {
         Room existing = rooms.get(code);
         if (existing == null) throw new IllegalArgumentException("Комната не найдена");
         Room r = JSON.fromJson(JSON.toJson(existing), Room.class); // mutate a copy, publish only after durable save
+        if (snapshotBackend != null && member(r, user.id) && r.game != null && !r.game.finished) {
+            long revision = r.game.revision;
+            if (r.game.current().bot && now >= r.botAt) Bot.turn(r.game, now); else r.game.timeout(now);
+            if (revision != r.game.revision) save(r, now);
+        }
         if (action.equals("join") && !member(r, user.id)) {
             ensureNoRoom(user.id, r.code);
             if (r.game != null) throw new IllegalArgumentException("Партия уже идёт");
@@ -180,5 +226,5 @@ public final class Server implements AutoCloseable {
         try (OutputStream out = exchange.getResponseBody()) { out.write(output); }
         finally { exchange.close(); }
     }
-    @Override public void close() throws Exception { http.stop(0); scheduler.shutdownNow(); workers.shutdownNow(); workers.awaitTermination(5, TimeUnit.SECONDS); store.close(); }
+    @Override public void close() throws Exception { if (http != null) http.stop(0); scheduler.shutdownNow(); workers.shutdownNow(); workers.awaitTermination(5, TimeUnit.SECONDS); store.close(); if (snapshotBackend != null) snapshotBackend.close(); }
 }

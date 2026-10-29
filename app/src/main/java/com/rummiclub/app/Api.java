@@ -6,6 +6,7 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 
 final class Api {
+    private static final ServerWarmup WARMUP = ServerWarmup.network();
     static final class Failure extends IOException {
         final int status;
         Failure(String message, int status) { super(message); this.status = status; }
@@ -14,14 +15,17 @@ final class Api {
         URI uri = URI.create(base);
         if (uri.getHost() == null || uri.getUserInfo() != null || (!"https".equals(uri.getScheme()) && !(BuildConfig.DEBUG && "http".equals(uri.getScheme()))))
             throw new IOException(BuildConfig.DEBUG ? "Укажите адрес http:// или https://" : "Нужен HTTPS-адрес сервера");
+        WARMUP.await(base);
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
         HttpURLConnection connection = (HttpURLConnection) new URL(base.replaceAll("/+$", "") + "/api/" + route).openConnection();
-        connection.setRequestMethod("POST"); connection.setConnectTimeout(7000); connection.setReadTimeout(10000);
+        connection.setRequestMethod("POST"); connection.setConnectTimeout(10000); connection.setReadTimeout(30000);
         connection.setInstanceFollowRedirects(false); connection.setDoOutput(true);
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
         if (!token.isEmpty()) connection.setRequestProperty("Authorization", "Bearer " + token);
         try {
             try (OutputStream out = connection.getOutputStream()) { out.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
             int status = connection.getResponseCode();
+            if (status == 502 || status == 503 || status == 504) WARMUP.failed(base);
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             if (stream == null) throw new IOException("Сервер не ответил");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -33,7 +37,9 @@ final class Api {
             try { result = JsonParser.parseString(bytes.toString("UTF-8")).getAsJsonObject(); }
             catch (RuntimeException invalid) { throw new IOException("По этому адресу нет сервера Rummi Club"); }
             if (status < 200 || status >= 300) throw new Failure(result.has("error") ? result.get("error").getAsString() : "Ошибка сети " + status, status);
+            WARMUP.succeeded(base);
             return result;
-        } finally { connection.disconnect(); }
+        } catch (IOException error) { WARMUP.failed(base); throw error; }
+        finally { connection.disconnect(); }
     }
 }

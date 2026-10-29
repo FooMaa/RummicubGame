@@ -1,10 +1,23 @@
-plugins { id 'application' }
+plugins {
+    id 'application'
+}
 java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 application { mainClass = 'com.rummiclub.server.Main' }
 dependencies {
     implementation project(':core')
     implementation 'org.xerial:sqlite-jdbc:3.46.1.0'
     implementation 'org.slf4j:slf4j-nop:2.0.16'
+    implementation platform('tech.ydb:ydb-sdk-bom:2.5.0')
+    implementation 'tech.ydb:ydb-sdk-query'
+    implementation 'tech.ydb.auth:yc-auth-provider:2.4.0'
     testImplementation 'junit:junit:4.13.2'
 }
 test { maxParallelForks = 1 }
+tasks.register('functionZip', Zip) {
+    dependsOn tasks.jar
+    archiveFileName = 'rummiclub-function.zip'
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    from(tasks.jar)
+    from(configurations.runtimeClasspath)
+    from('function/Handler.java')
+}

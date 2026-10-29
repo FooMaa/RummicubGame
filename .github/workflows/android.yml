@@ -30,7 +30,7 @@ jobs:
       - name: Verify engine, server and Android app
         env:
           RUMMI_SERVER_URL: ${{ vars.RUMMI_SERVER_URL }}
-        run: ./gradlew --no-daemon :core:test :server:test :app:lintDebug :app:assembleDebug :server:distZip
+        run: ./gradlew --no-daemon :core:test :server:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :server:distZip :server:functionZip
       - name: Prepare installable APK
         run: |
           mkdir -p artifacts

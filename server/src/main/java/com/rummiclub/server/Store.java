@@ -96,6 +96,44 @@ public final class Store implements AutoCloseable {
     public synchronized void delete(String code) throws SQLException {
         try (PreparedStatement p = db.prepareStatement("DELETE FROM rooms WHERE code=?")) { p.setString(1, code); p.executeUpdate(); }
     }
+    public synchronized String snapshot() throws SQLException {
+        Map<String, List<List<String>>> state = new LinkedHashMap<>();
+        for (String table : List.of("users", "sessions", "rooms")) {
+            List<List<String>> rows = new ArrayList<>();
+            try (Statement s = db.createStatement(); ResultSet r = s.executeQuery("SELECT * FROM " + table + " ORDER BY 1")) {
+                while (r.next()) {
+                    List<String> row = new ArrayList<>();
+                    for (int i = 1; i <= r.getMetaData().getColumnCount(); i++) row.add(r.getString(i));
+                    rows.add(row);
+                }
+            }
+            state.put(table, rows);
+        }
+        return JSON.toJson(state);
+    }
+    public synchronized void restore(String snapshot) throws SQLException {
+        com.google.gson.JsonObject state = snapshot == null ? new com.google.gson.JsonObject() : com.google.gson.JsonParser.parseString(snapshot).getAsJsonObject();
+        db.setAutoCommit(false);
+        try {
+            for (String table : List.of("users", "sessions", "rooms")) {
+                try (Statement s = db.createStatement()) { s.executeUpdate("DELETE FROM " + table); }
+                if (!state.has(table)) continue;
+                int columns = table.equals("users") ? 5 : table.equals("sessions") ? 3 : 2;
+                String placeholders = String.join(",", Collections.nCopies(columns, "?"));
+                try (PreparedStatement p = db.prepareStatement("INSERT INTO " + table + " VALUES (" + placeholders + ")")) {
+                    for (com.google.gson.JsonElement element : state.getAsJsonArray(table)) {
+                        com.google.gson.JsonArray row = element.getAsJsonArray();
+                        if (row.size() != columns) throw new IllegalArgumentException("Invalid snapshot");
+                        for (int i = 0; i < columns; i++) p.setString(i + 1, row.get(i).getAsString());
+                        p.addBatch();
+                    }
+                    p.executeBatch();
+                }
+            }
+            db.commit();
+        } catch (Exception e) { db.rollback(); throw e; }
+        finally { db.setAutoCommit(true); }
+    }
     private static String hashPassword(String password, byte[] salt) throws Exception {
         PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, ITERATIONS, 256);
         try { return Base64.getEncoder().encodeToString(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded()); }

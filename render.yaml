@@ -1,0 +1,17 @@
+# Free compute; persistent state lives in the existing YDB database.
+# Add the runtime service account key as a Render Secret File BEFORE deploying.
+services:
+  - type: web
+    name: rummiclub
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: YDB_CONNECTION_STRING
+        sync: false
+      - key: YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS
+        value: /etc/secrets/rummiclub-ydb-key.json
+      - key: JAVA_TOOL_OPTIONS
+        value: -XX:MaxRAMPercentage=60.0
