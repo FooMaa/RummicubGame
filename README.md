@@ -19,6 +19,9 @@
 
 ## Быстро получить APK
 
+[Скачать подписанный Руммикуб 1.1.0](https://storage.yandexcloud.net/rummiclub-b1gnh906kig48n78a5h9/Rummikub-1.1.0.apk). Устанавливается поверх 1.0.4; приложение удалять не нужно.
+
+
 Нужны JDK **17**, Android SDK Platform 34 и Build Tools 34.0.0. В Android Studio откройте корень проекта и установите SDK через SDK Manager. Путь к SDK задаётся через `ANDROID_HOME` или файл `local.properties` с `sdk.dir=/your/android/sdk`.
 
 ```bash
