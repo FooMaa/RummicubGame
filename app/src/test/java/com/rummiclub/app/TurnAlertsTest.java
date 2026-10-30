@@ -14,6 +14,8 @@ public class TurnAlertsTest {
         assertEquals(TurnAlerts.Event.NONE,a.update("room",2,false,true,10));
         assertEquals(TurnAlerts.Event.WARNING,a.update("room",3,true,true,8));
         assertEquals(TurnAlerts.Event.TURN,a.update("other",3,true,false,0));
+        a.reset();assertEquals(TurnAlerts.Event.TURN,a.update("other",3,true,true,60));
+        assertEquals(TurnAlerts.Event.WARNING,a.update("other",3,true,true,10));
     }
     @Test public void timerThresholdsAndUnlimitedGames(){
         assertEquals(0,TurnAlerts.urgency(60000,39000));assertEquals(1,TurnAlerts.urgency(60000,40000));

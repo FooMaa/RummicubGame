@@ -7,6 +7,7 @@ final class TurnAlerts {
     static int urgency(long deadline,long now){if(deadline==0)return 0;long left=seconds(deadline,now);return left<=10?2:left<=20?1:0;}
     private String key="";
     private boolean warned;
+    void reset(){key="";warned=false;}
     Event update(String room,long revision,boolean own,boolean timed,long remaining){
         String next=room+":"+revision;
         boolean changed=!next.equals(key);

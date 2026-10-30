@@ -188,6 +188,7 @@ public final class MainActivity extends Activity {
     private void newLocalDialog() {
         new AlertDialog.Builder(this).setTitle("Сколько ботов за столом?").setItems(new String[]{"Один · дуэль","Два · компания","Три · полный стол"},(d,which) -> {
             Runnable start = () -> {
+                alerts.reset();
                 local = new Room(); local.code="TRAINING"; local.host="local"; local.turnSeconds=trainingSeconds;
                 local.members.add(new Game.Player("local",playerName,false));
                 String[] names={"Атлас","Луна","Орион"};
@@ -268,6 +269,7 @@ public final class MainActivity extends Activity {
         }).setNegativeButton("Отмена",null).show();
     }
     private void accept(Room.View incoming,boolean reset) {
+        if(view==null||!Objects.equals(view.code,incoming.code)||incoming.revision<view.revision||(!view.started&&incoming.started)||(view.finished&&!incoming.finished))alerts.reset();
         boolean boardChanged=reset||view==null||!Objects.equals(view.code,incoming.code)||view.revision!=incoming.revision||view.started!=incoming.started;
         boolean changed=boardChanged||!JSON.toJson(view.players).equals(JSON.toJson(incoming.players))||!Objects.equals(view.host,incoming.host);
         view=incoming;
