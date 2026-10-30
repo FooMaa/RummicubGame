@@ -60,7 +60,7 @@ public class RulesTest {
         Game g=Game.start(Arrays.asList(new Game.Player("a","A",false),new Game.Player("b","B",false)),new Random(2),60,1000);
         String current=g.current().id;List<Integer> before=new ArrayList<>(g.current().rack);
         invalid(()->g.play(current,g.revision,board(row(0,0,0)),1001));assertEquals(before,g.current().rack);
-        g.editing=true;g.timeout(61000);assertEquals(17,g.player(current).rack.size());assertEquals(1,g.revision);
+        g.editing=true;g.timeout(61000);assertEquals(15,g.player(current).rack.size());assertEquals(1,g.revision);
         invalid(()->g.draw(current,0,62000));
         g.timeout(61000);assertEquals(1,g.revision);
     }

@@ -22,6 +22,7 @@ public final class Room {
             v.started = true; v.board = Rules.copyBoard(game.board); v.rack = new ArrayList<>(game.player(viewer).rack);
             v.turn = game.current().id; v.revision = game.revision; v.deadline = game.deadline;
             v.poolCount = game.pool.size(); v.finished = game.finished; v.winner = game.winner; v.message = game.message;
+            if(viewer.equals(game.current().id)) { v.draft=game.pendingBoard==null?null:Rules.copyBoard(game.pendingBoard);v.draftVersion=game.pendingVersion; }
         }
         return v;
     }
@@ -35,6 +36,8 @@ public final class Room {
         public String code, host, me, turn, winner, message;
         public boolean started, finished;
         public long revision, deadline;
+        public long draftVersion;
+        public List<List<Integer>> draft;
         public int poolCount, turnSeconds;
         public List<Seat> players = new ArrayList<>();
         public List<Integer> rack = new ArrayList<>();

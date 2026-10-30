@@ -30,12 +30,12 @@ jobs:
       - name: Verify engine, server and Android app
         env:
           RUMMI_SERVER_URL: ${{ vars.RUMMI_SERVER_URL }}
-        run: ./gradlew --no-daemon :core:test :server:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :server:distZip :server:functionZip
+        run: ./gradlew --no-daemon :core:test :server:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :server:distZip :server:functionZip
       - name: Prepare installable APK
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk artifacts/RummiClub-debug.apk
-          sha256sum artifacts/RummiClub-debug.apk > artifacts/SHA256SUMS
+          cp app/build/outputs/apk/debug/app-debug.apk artifacts/Rummikub-debug.apk
+          sha256sum artifacts/Rummikub-debug.apk > artifacts/SHA256SUMS
       - name: Build signed release when signing secrets exist
         if: github.event_name != 'pull_request'
         env:
@@ -54,19 +54,19 @@ jobs:
           trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           ./gradlew --no-daemon :app:assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk artifacts/RummiClub-release.apk
-          sha256sum artifacts/RummiClub-release.apk >> artifacts/SHA256SUMS
+          cp app/build/outputs/apk/release/app-release.apk artifacts/Rummikub-release.apk
+          sha256sum artifacts/Rummikub-release.apk >> artifacts/SHA256SUMS
       - name: Verify APK integrity, signatures and alignment
         run: ./scripts/verify-apk.sh artifacts/*.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: RummiClub-Android-APK
+          name: Rummikub-Android-APK
           path: artifacts/
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: RummiClub-server
+          name: Rummikub-server
           path: server/build/distributions/*.zip
           retention-days: 30
       - name: Test and lint reports

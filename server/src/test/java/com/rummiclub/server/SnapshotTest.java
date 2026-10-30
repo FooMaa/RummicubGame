@@ -8,6 +8,31 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class SnapshotTest {
+    @Test public void privateDraftSurvivesReloadAndDeadlineCommitsOnlyLegalTiles() throws Exception {
+        Path dir=Files.createTempDirectory("rummi-draft");Shared shared=new Shared();
+        try(Server a=new Server(0,dir.resolve("one.db"),new Memory(shared));Server b=new Server(0,dir.resolve("two.db"),new Memory(shared))){
+            a.start();b.start();String alice=register(a,"Alice"),boris=register(b,"Boris");
+            String code=call(a,"room/create",alice,"{\"turnSeconds\":60}").get("code").getAsString();String body="{\"code\":\""+code+"\"}";
+            call(b,"room/join",boris,body);JsonObject started=call(a,"room/start",alice,body);
+            String owner=started.get("turn").equals(started.get("me"))?alice:boris,other=owner.equals(alice)?boris:alice;
+            JsonObject snapshot=JsonParser.parseString(shared.snapshot).getAsJsonObject();JsonArray stored=snapshot.getAsJsonArray("rooms").get(0).getAsJsonArray();
+            com.rummiclub.core.Room room=new Gson().fromJson(stored.get(1).getAsString(),com.rummiclub.core.Room.class);
+            com.rummiclub.core.Game game=room.game;game.current().opened=true;game.current().rack=new java.util.ArrayList<>(java.util.List.of(3,40,52));game.players.get((game.turn+1)%2).rack=new java.util.ArrayList<>(java.util.List.of(70,71,72));
+            game.board=new java.util.ArrayList<>();game.board.add(new java.util.ArrayList<>(java.util.List.of(0,1,2)));game.pool.clear();
+            java.util.Set<Integer> used=new java.util.HashSet<>(java.util.List.of(0,1,2,3,40,52,70,71,72));for(int i=0;i<106;i++)if(!used.contains(i))game.pool.add(i);
+            stored.set(1,new JsonPrimitive(new Gson().toJson(room)));shared.snapshot=snapshot.toString();
+            String draft="{\"code\":\""+code+"\",\"revision\":0,\"draftVersion\":1,\"editing\":true,\"draft\":[[0,1,2,40,3],[52]]}";
+            call(a,"room/edit",owner,draft);assertEquals(200,status);
+            assertTrue(call(b,"room/state",owner,body).has("draft"));assertFalse(call(b,"room/state",other,body).has("draft"));
+            call(b,"room/edit",owner,draft.replace("[52]","[99]"));assertEquals(400,status);
+            snapshot=JsonParser.parseString(shared.snapshot).getAsJsonObject();stored=snapshot.getAsJsonArray("rooms").get(0).getAsJsonArray();
+            JsonObject roomJson=JsonParser.parseString(stored.get(1).getAsString()).getAsJsonObject();roomJson.getAsJsonObject("game").addProperty("deadline",System.currentTimeMillis()-1);stored.set(1,new JsonPrimitive(roomJson.toString()));shared.snapshot=snapshot.toString();
+            call(b,"room/state",other,body);assertEquals(200,status);
+            JsonObject resolved=call(a,"room/state",owner,body);assertEquals(1,resolved.get("revision").getAsInt());assertEquals("[[0,1,2,3]]",resolved.get("board").toString());assertEquals("[40,52]",resolved.get("rack").toString());
+            call(a,"room/edit",owner,draft);assertEquals(400,status);assertEquals(1,call(b,"room/state",owner,body).get("revision").getAsInt());
+        }
+        try(var paths=Files.walk(dir)){paths.sorted(java.util.Comparator.reverseOrder()).forEach(p->{try{Files.delete(p);}catch(Exception ignored){}});}
+    }
     static final class Shared { String snapshot; boolean fail; }
     static final class Memory implements SnapshotBackend {
         final Shared shared;

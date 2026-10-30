@@ -14,6 +14,8 @@ public final class Game {
     public int passes;
     public boolean finished;
     public boolean editing;
+    public List<List<Integer>> pendingBoard;
+    public long pendingVersion;
     public String winner;
     public String message = "Партия началась";
 
@@ -71,7 +73,19 @@ public final class Game {
     }
     public void draw(String id, long expectedRevision, long now) { checkTurn(id, expectedRevision); drawTiles(1, now); }
     public void timeout(long now) {
-        if (!finished && deadline > 0 && now >= deadline) drawTiles(editing ? 3 : 1, now);
+        if (!finished && deadline > 0 && now >= deadline) {
+            List<List<Integer>> resolved=pendingBoard==null?Rules.copyBoard(board):TimeoutResolver.resolve(board,current().rack,current().opened,pendingBoard);
+            if(!Rules.flatten(board).equals(Rules.flatten(resolved)))play(current().id,revision,resolved,now);
+            else drawTiles(1,now);
+        }
+    }
+    public void stage(String id,long expectedRevision,List<List<Integer>> proposed) {
+        stage(id,expectedRevision,pendingVersion+1,proposed);
+    }
+    public void stage(String id,long expectedRevision,long version,List<List<Integer>> proposed) {
+        checkTurn(id,expectedRevision);TimeoutResolver.validateDraft(board,current().rack,proposed);
+        if(version<=pendingVersion)return;
+        pendingBoard=Rules.copyBoard(proposed);pendingVersion=version;editing=!pendingBoard.equals(board);
     }
     private void drawTiles(int amount, long now) {
         Player p = current();
@@ -87,11 +101,11 @@ public final class Game {
         } else next(now);
     }
     private void next(long now) {
-        turn = (turn + 1) % players.size(); revision++; editing = false; setDeadline(now);
+        turn = (turn + 1) % players.size(); revision++; editing = false; pendingBoard=null;pendingVersion=0; setDeadline(now);
     }
     private void setDeadline(long now) { deadline = turnSeconds == 0 ? 0 : now + turnSeconds * 1000L; }
     private void finish(Player p, boolean blocked) {
-        finished = true; winner = p.id; revision++; deadline = 0; editing = false;
+        finished = true; winner = p.id; revision++; deadline = 0; editing = false;pendingBoard=null;pendingVersion=0;
         int base = blocked ? Rules.rackValue(p.rack) : 0;
         for (Player other : players) {
             if (other == p) continue;

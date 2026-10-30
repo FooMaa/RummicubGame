@@ -6,8 +6,9 @@ android {
         applicationId 'com.rummiclub.app'
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName '1.0.4'
+        versionCode 6
+        versionName '1.1.0'
+        testInstrumentationRunner 'com.rummiclub.app.UiSmoke'
         buildConfigField 'String', 'DEFAULT_SERVER_URL', '"' + (System.getenv('RUMMI_SERVER_URL') ?: 'https://rummiclub.onrender.com').replace('"', '').replace('\\', '') + '"'
     }
     buildFeatures { buildConfig true }

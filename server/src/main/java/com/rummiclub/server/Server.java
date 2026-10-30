@@ -74,7 +74,7 @@ public final class Server implements AutoCloseable {
     private Reply execute(String path, String method, byte[] bytes, String header, String ip) {
         int status = 200; Object result;
         try {
-            if (path.equals("/health") && method.equals("GET")) result = Map.of("status", "ok");
+            if (path.equals("/health") && method.equals("GET")) result = Map.of("status", "ok", "apiVersion", 2);
             else {
                 if (!method.equals("POST")) { return new Reply(405, Map.of("error", "Используйте POST")); }
                 if (bytes.length > 65536) { return new Reply(413, Map.of("error", "Запрос слишком большой")); }
@@ -128,9 +128,14 @@ public final class Server implements AutoCloseable {
         Room existing = rooms.get(code);
         if (existing == null) throw new IllegalArgumentException("Комната не найдена");
         Room r = JSON.fromJson(JSON.toJson(existing), Room.class); // mutate a copy, publish only after durable save
+        if (r.game!=null && !r.game.finished && r.game.current().id.equals(user.id) && member(r,user.id) && body.has("draft")
+            && (r.game.deadline==0||now<r.game.deadline) && body.has("revision") && body.get("revision").getAsLong()==r.game.revision) {
+            r.game.stage(user.id,r.game.revision,body.get("draftVersion").getAsLong(),parseBoard(body.get("draft")));
+            save(r,now);
+        }
         if (snapshotBackend != null && member(r, user.id) && r.game != null && !r.game.finished) {
             long revision = r.game.revision;
-            if (r.game.current().bot && now >= r.botAt) Bot.turn(r.game, now); else r.game.timeout(now);
+            if(r.game.deadline>0&&now>=r.game.deadline)r.game.timeout(now);else if(r.game.current().bot&&now>=r.botAt)Bot.turn(r.game,now);
             if (revision != r.game.revision) save(r, now);
         }
         if (action.equals("join") && !member(r, user.id)) {
@@ -171,7 +176,7 @@ public final class Server implements AutoCloseable {
                 }
                 r.game.checkTurn(user.id, revision);
                 if (action.equals("draw")) r.game.draw(user.id, revision, now);
-                else if (action.equals("edit")) r.game.editing = body.get("editing").getAsBoolean();
+                else if (action.equals("edit")) { if(!body.has("draft"))r.game.editing = body.get("editing").getAsBoolean(); }
                 else {
                     List<List<Integer>> proposed = parseBoard(body.get("board"));
                     r.game.play(user.id, revision, proposed, now);
@@ -212,7 +217,7 @@ public final class Server implements AutoCloseable {
                 if (existing.game == null || existing.game.finished) continue;
                 Room r = JSON.fromJson(JSON.toJson(existing), Room.class);
                 long revision = r.game.revision;
-                if (r.game.current().bot && now >= r.botAt) Bot.turn(r.game, now); else r.game.timeout(now);
+                if(r.game.deadline>0&&now>=r.game.deadline)r.game.timeout(now);else if(r.game.current().bot&&now>=r.botAt)Bot.turn(r.game,now);
                 if (r.game.revision != revision) save(r, now);
             } catch (Exception e) { System.err.println("Room tick failed: " + e.getClass().getSimpleName()); }
         }

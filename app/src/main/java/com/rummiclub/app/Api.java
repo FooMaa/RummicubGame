@@ -20,7 +20,7 @@ final class Api {
             HttpTransport.Reply response = HttpTransport.post(base.replaceAll("/+$", "") + "/api/" + route, token, body.toString());
             JsonObject result;
             try { result = JsonParser.parseString(response.body()).getAsJsonObject(); }
-            catch (RuntimeException invalid) { throw new IOException("По этому адресу нет сервера Rummi Club"); }
+            catch (RuntimeException invalid) { throw new IOException("По этому адресу нет сервера Руммикуб"); }
             if (response.status() < 200 || response.status() >= 300)
                 throw new Failure(result.has("error") ? result.get("error").getAsString() : "Ошибка сети " + response.status(), response.status());
             WARMUP.succeeded(base);

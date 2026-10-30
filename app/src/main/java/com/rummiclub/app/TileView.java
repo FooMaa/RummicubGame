@@ -12,6 +12,8 @@ final class TileView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final int tile;
     private final boolean selected;
+    private int insertion;
+    void insertion(int side){insertion=side;invalidate();}
     TileView(Context context, int tile, boolean selected) {
         super(context); this.tile = tile; this.selected = selected; setLayerType(View.LAYER_TYPE_SOFTWARE, null);
         setContentDescription(Rules.joker(tile) ? "Джокер" : NAMES[Rules.color(tile)] + " " + Rules.number(tile));
@@ -27,6 +29,7 @@ final class TileView extends View {
         paint.setColor(Rules.joker(tile) ? 0xFF7954AF : COLORS[Rules.color(tile)]);
         paint.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD)); paint.setTextSize(29 * unit); paint.setTextAlign(Paint.Align.CENTER);
         canvas.drawText(Rules.joker(tile) ? "★" : String.valueOf(Rules.number(tile)), w / 2, h * .62f, paint);
+        if(insertion!=0){paint.setColor(0xFFC5F277);paint.setStrokeWidth(4*unit);float x=insertion<0?unit:w-unit;canvas.drawLine(x,4*unit,x,h-4*unit,paint);}
         // Color-independent marks: 1–4 dots, so tiles remain distinguishable without color.
         int dots = Rules.joker(tile) ? 0 : Rules.color(tile) + 1;
         for (int i = 0; i < dots; i++) canvas.drawCircle(w / 2 + (i - (dots - 1) / 2f) * 5 * unit, h * .79f, 1.35f * unit, paint);

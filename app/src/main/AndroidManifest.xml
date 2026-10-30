@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <application android:label="Rummi Club" android:theme="@style/AppTheme"
+    <application android:label="Руммикуб" android:theme="@style/AppTheme"
         android:icon="@drawable/ic_launcher" android:allowBackup="false" android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules" tools:targetApi="31"
         android:supportsRtl="true" android:usesCleartextTraffic="false">
